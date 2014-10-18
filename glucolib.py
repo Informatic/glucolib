@@ -1,4 +1,5 @@
 import serial
+from serial.tools.list_ports import comports
 import datetime
 
 # FIXME RTFM
@@ -36,7 +37,7 @@ class OptiumXido(object):
         return resp
 
     def fetchData(self):
-        ''' Returns glucometer readings in form of list of tuples:
+        """Returns glucometer readings in form of list of tuples:
             [(value, readingType, datetime)]
 
             value
@@ -47,7 +48,7 @@ class OptiumXido(object):
 
             datetime
                 datetime.datetime object containing date of measurement
-        '''
+        """
 
         resp = self.command('$xmem')
 
@@ -69,7 +70,7 @@ class OptiumXido(object):
         return readings
 
     def deviceInfo(self):
-        ''' Returns dict different system-specific values, including:
+        """Return dict containing different system-specific values, including:
 
             S/N
                 Device serial number
@@ -80,7 +81,7 @@ class OptiumXido(object):
             Clock
                 Current date and time set on device
 
-        '''
+        """
         resp = self.command('$colq')
 
         if resp[-1] != 'CMD OK':
@@ -88,3 +89,23 @@ class OptiumXido(object):
 
         return dict((n.partition(':')[0], n.split('\t')[1:])
                     for n in resp[:-1])
+
+
+supported_devices = {
+    ('1a61', '3420'): OptiumXido
+    }
+
+
+def list_devices():
+    """Return list of tuples depicting connected devices found and apropriate
+    classes to use for communication."""
+    results = list()
+
+    for port, desc, hwids in comports():
+        for (pid, vid), cls in supported_devices.items():
+            if pid in hwids.lower() and vid in hwids.lower():
+                # FIXME yield?
+                results.append((port, cls))
+                break
+
+    return results
