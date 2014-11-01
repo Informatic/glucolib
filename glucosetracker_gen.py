@@ -1,9 +1,9 @@
 #!/usr/bin/env python2
 '''
 This script generates CSV compatible with https://www.glucosetracker.net/ app
-from data stored on Abbott Optium Xido device.
+from data stored on Abbott Optium Xido or Diagnosis Diagnostic Gold device.
 
-You may consider it an example of glucolib.OptiumXido
+You may consider it an example of glucolib.
 '''
 
 import glucolib

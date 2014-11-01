@@ -1,10 +1,34 @@
+"""
+Copyright (c) 2014 Piotr Dobrowolski
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+
 import serial
 from serial.tools.list_ports import comports
 import datetime
 import locale
+import struct
+import logging
+import time
 
-# FIXME RTFM
-readingTypes = {
+reading_types = {
     'G': 'Glucose',
     }
 
@@ -12,6 +36,107 @@ readingTypes = {
 class GlucometerException(Exception): pass
 class DeviceNotConnected(GlucometerException): pass
 class DeviceInvalid(GlucometerException): pass
+
+
+def hexdump(data):
+    return ' '.join(['%02X' % n for n in data])
+
+
+# Diagnosis Diagnotic GOLD
+class DiagnosticGold(object):
+    def __init__(self, path='/dev/ttyUSB0'):
+        self.logger = logging.getLogger('glucolib.DiagnosisGold')
+        try:
+            self.ser = serial.Serial(path, 38400, timeout=1,
+                                     interCharTimeout=0.1)
+        except Exception, ex:
+            raise DeviceNotConnected(ex)
+
+    def fetch_data(self, timeout=5):
+        end_time = time.time() + timeout
+
+        while True:
+            try:
+                d = self.read()
+                if d:
+                    if d[0] == 0x10:
+                        break
+            except DeviceNotConnected, exc:
+                self.logger.debug('No device found... (%s)', exc)
+
+                if end_time < time.time():
+                    raise
+
+        self.logger.debug('Device found, doing handshake')
+        self.write(bytearray([0x10, 0x40]))
+        (_, _, readings_count, id_code, uid) = struct.unpack('BBB3s16s',
+                                                             self.read())
+
+        readings = []
+
+        while True:
+            self.write(bytearray([0x10, 0x60]))
+            data = self.read()
+
+            if len(data) < 17:
+                self.logger.debug('Reading finished')
+                break
+
+            (_, _, date_year, date_month, date_day, date_hour, date_minute,
+                _, value) = struct.unpack('B'*9, data[0:9])
+
+            date = datetime.datetime(day=date_day, month=date_month,
+                                     year=2000+date_year,
+                                     hour=date_hour, minute=date_minute)
+            readings.append(('G', value, date))
+
+        return readings
+
+    def read(self):
+        start = self.ser.read(1)
+        if not start or start == '\x00':
+            raise DeviceNotConnected('Device not responding')
+
+        elif ord(start) != 0x53:
+            raise DeviceInvalid('Start byte invalid (%r)' % start)
+
+        direction = ord(self.ser.read(1))
+        if direction != 0x20:
+            raise DeviceInvalid('Direction byte invalid (??)')
+
+        data_length = ord(self.ser.read(1))
+        data = bytearray(self.ser.read(data_length - 2))
+
+        chksum = ord(self.ser.read(1))
+        if chksum != self.checksum(data):
+            raise DeviceInvalid('Checksum invalid')
+
+        end = ord(self.ser.read(1))
+        if end != 0xaa:
+            raise DeviceInvalid('End byte invalid')
+
+        self.logger.debug('<-- %s', hexdump(data))
+        return data
+
+    def checksum(self, data):
+        chksum = 0
+
+        for b in data:
+            chksum ^= b
+
+        return chksum
+
+    def write(self, data):
+        buf = bytearray([0x53, 0x10, len(data) + 2]) + data + \
+            bytearray([self.checksum(data), 0xaa])
+
+        self.logger.debug('<-- %s // %s', hexdump(data), hexdump(buf))
+        self.ser.write(buf)
+
+    def close(self):
+        if self.ser:
+            self.ser.close()
+
 
 # Abbott Optium Xido glucometer
 class OptiumXido(object):
@@ -104,7 +229,8 @@ class OptiumXido(object):
 
 
 supported_devices = {
-    ('1a61', '3420'): OptiumXido
+    ('1a61', '3420'): OptiumXido,
+    ('10c4', 'ea60'): DiagnosticGold,
     }
 
 
