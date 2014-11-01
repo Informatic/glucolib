@@ -11,7 +11,7 @@ import sys
 
 try:
     g = glucolib.OptiumXido()
-    readings = g.fetchData()
+    readings = g.fetch_data()
     print '"Value","Category","Date","Time","Notes"'
     for type, value, date in readings:
         if type == 'G':

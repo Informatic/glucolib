@@ -1,6 +1,7 @@
 import serial
 from serial.tools.list_ports import comports
 import datetime
+import locale
 
 # FIXME RTFM
 readingTypes = {
@@ -16,27 +17,12 @@ class DeviceInvalid(GlucometerException): pass
 class OptiumXido(object):
     def __init__(self, path='/dev/ttyUSB0'):
         try:
-            self.ser = serial.Serial(path, 19200, timeout=0.1)
+            self.ser = serial.Serial(path, 19200, timeout=0.1,
+                                     interCharTimeout=0.1)
         except Exception, ex:
             raise DeviceNotConnected(ex)
 
-    def command(self, cmd):
-        self.ser.write(cmd + "\r\n")
-
-        # FIXME readlines fails when packet is split into multiple buffers (eg.
-        # in $colq response)
-        #time.sleep(1)
-
-        resp = [l.strip() for l in self.ser.readlines()]
-
-        # If no data received then device is not connected or sleeping (data
-        # cable connector replug is needed)
-        if not resp:
-            raise DeviceNotConnected('Device not responding')
-
-        return resp
-
-    def fetchData(self):
+    def fetch_data(self):
         """Returns glucometer readings in form of list of tuples:
             [(value, readingType, datetime)]
 
@@ -57,19 +43,25 @@ class OptiumXido(object):
         if resp[0] != '':
             raise DeviceInvalid()
 
-        readingsCount = resp[4]
-        rawDataset = resp[5:5 + int(readingsCount)]
+        readings_count = resp[4]
+        raw_dataset = resp[5:5 + int(readings_count)]
         readings = []
 
-        for reading in rawDataset:
-            value, month, day, year, time, readingType, _ = reading.split()
-            parsedDatetime = datetime.datetime.strptime(
-                ' '.join([month, day, year, time]), '%b %d %Y %H:%M')
-            readings.append((readingType, int(value), parsedDatetime))
+        for reading in raw_dataset:
+            value, month, day, year, time, reading_type, _ = reading.split()
+
+            saved = locale.setlocale(locale.LC_ALL, 'C')
+            try:
+                parsed_datetime = datetime.datetime.strptime(
+                    ' '.join([month, day, year, time]), '%b %d %Y %H:%M')
+            finally:
+                locale.setlocale(locale.LC_ALL, saved)
+
+            readings.append((reading_type, int(value), parsed_datetime))
 
         return readings
 
-    def deviceInfo(self):
+    def device_info(self):
         """Return dict containing different system-specific values, including:
 
             S/N
@@ -89,6 +81,26 @@ class OptiumXido(object):
 
         return dict((n.partition(':')[0], n.split('\t')[1:])
                     for n in resp[:-1])
+
+    def close(self):
+        if self.ser:
+            self.ser.close()
+
+    def command(self, cmd):
+        self.ser.write(cmd + "\r\n")
+
+        # FIXME readlines fails when packet is split into multiple buffers (eg.
+        # in $colq response)
+        #time.sleep(1)
+
+        resp = [l.strip() for l in self.ser.readlines()]
+
+        # If no data received then device is not connected or sleeping (data
+        # cable connector replug is needed)
+        if not resp:
+            raise DeviceNotConnected('Device not responding')
+
+        return resp
 
 
 supported_devices = {
