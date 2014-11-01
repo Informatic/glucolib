@@ -9,8 +9,13 @@ You may consider it an example of glucolib.OptiumXido
 import glucolib
 import sys
 
+devices = glucolib.list_devices()
+if not devices:
+    print >>sys.stderr, "*** No supported devices found"
+    exit(1)
+
 try:
-    g = glucolib.OptiumXido()
+    g = devices[0][1](devices[0][0])
     readings = g.fetch_data()
     print '"Value","Category","Date","Time","Notes"'
     for type, value, date in readings:
@@ -20,5 +25,6 @@ try:
 
 except (glucolib.DeviceInvalid, glucolib.DeviceNotConnected), ex:
     print >>sys.stderr, "*** Make sure your device is connected properly and "\
-        "not sleeping (you may want to replug the connector in such case)"
+        "not sleeping (you may want to replug the connector in some cases)"
     print >>sys.stderr, "*** Captured exception:", ex
+    exit(1)
